@@ -1,4 +1,4 @@
-;;; org-roam-protocol-url.el --- Protocol handler for roam:// links  -*- coding: utf-8; lexical-binding: t; -*-
+;; org-roam-protocol-url.el --- Protocol handler for roam:// links  -*- coding: utf-8; lexical-binding: t; -*-
 
 ;; Copyright © 2020 Jethro Kuan <jethrokuan95@gmail.com>
 ;; Author: Jethro Kuan <jethrokuan95@gmail.com>
@@ -164,11 +164,11 @@ https://github.com/emacs-helm/helm"))
         (funcall action res)
       res)))
 
-(defun org-roam-find-file-url (&optional initial-prompt completions filter-fn no-confirm setup-fn)
+(defun org-roam-find-file-url (initial-prompt completions &optional filter-fn no-confirm setup-fn)
   "Find and open an Org-roam file.
   INITIAL-PROMPT is the initial title prompt.
   COMPLETIONS is a list of completions to be used instead of
-  `org-roam--get-title-path-completions`.
+  `org-roam--get-title-path-completions`
   FILTER-FN is the name of a function to apply on the candidates
   which takes as its argument an alist of path-completions.  See
   `org-roam--get-title-path-completions' for details.
@@ -179,7 +179,7 @@ https://github.com/emacs-helm/helm"))
                                completions))
          (title-with-tags (case (length completions)
                              (0 nil)
-                             (1 (caar completions))
+                             (1 (progn (when setup-fn (funcall setup-fn)) (caar completions)))
                              (t (if no-confirm
                              initial-prompt
                              (when setup-fn (funcall setup-fn))
