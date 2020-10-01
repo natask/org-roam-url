@@ -83,7 +83,7 @@ to the file."
   "Return an alist for completion.
 The car is the displayed title for completion, and the cdr is the
 to the file."
-  (let* ((url-path (s-replace-regexp "http[s]?:"  "" url))
+  (let* ((url-path (s-replace-regexp "^http[s]?:"  "" url))
          (rows (org-roam-db-query  [:select [links:properties files:file titles:title tags:tags files:meta] :from links
                                   :left :join titles
                                  :on (= links:from titles:file)
