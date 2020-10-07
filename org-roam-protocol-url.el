@@ -1,9 +1,9 @@
 ;; org-roam-protocol-url.el --- Protocol handler for roam:// links  -*- coding: utf-8; lexical-binding: t; -*-
 
-;; Copyright © 2020 Jethro Kuan <jethrokuan95@gmail.com>
-;; Author: Jethro Kuan <jethrokuan95@gmail.com>
-;; URL: https://github.com/org-roam/org-roam
-;; Keywords: org-mode, roam, convenience
+;; Copyright © 2020 Natnael Kahssay <thisnkk@gmail.com>
+;; Author: Natnael Kahssay <thisnkk@gmail.com>
+;; URL: https://github.com/natask/org-roam
+;; Keywords: org-mode, roam, convenience, url
 ;; Version: 1.2.1
 ;; Package-Requires: ((emacs "26.1") (org "9.3"))
 
@@ -29,10 +29,9 @@
 ;; We extend org-protocol, adding custom Org-roam handlers. The setup
 ;; instructions for `org-protocol' can be found in org-protocol.el.
 ;;
-;; We define 2 protocols:
+;; We define 1 protocol:
 ;;
-;; 1. "roam-file": This protocol simply opens the file given by the FILE key
-;; 2. "roam-ref": This protocol creates or opens a note with the given REF
+;; 1. "roam-url": This protocol opens a list of files that link to url. directly creates a note using "roam-ref" protocol otherwise.
 ;;
 ;;; Code:
 (require 'org-protocol)
