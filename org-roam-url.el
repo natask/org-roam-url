@@ -1,10 +1,10 @@
-;; org-roam-protocol-url.el --- Protocol handler for roam:// links  -*- coding: utf-8; lexical-binding: t; -*-
+;;; org-roam-url.el --- Url Protocol handler for roam:// links  -*- coding: utf-8; lexical-binding: t; -*-
 
 ;; Copyright © 2020 Natnael Kahssay <thisnkk@gmail.com>
 ;; Author: Natnael Kahssay <thisnkk@gmail.com>
 ;; URL: https://github.com/natask/org-roam
 ;; Keywords: org-mode, roam, convenience, url
-;; Version: 1.2.1
+;; Version: 1.2.2
 ;; Package-Requires: ((emacs "26.1") (org "9.3"))
 
 ;; This file is NOT part of GNU Emacs.
@@ -213,4 +213,5 @@ When check is available in url, no matter what it is set to, just check if file 
 
 (push '("org-roam-url"  :protocol "roam-url"   :function org-roam-protocol-open-url)
       org-protocol-protocol-alist)
-(provide 'org-roam-protocol-url)
+(provide 'org-roam-url)
+;;; org-roam-url.el ends here
