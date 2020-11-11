@@ -50,8 +50,8 @@ to the file."
                                  :left :join files
                                  :on (= titles:file files:file)
                                  :left :join links
-                                 :on (= files:file links:from)
-                                 :where (= links:to $s1)
+                                 :on (= files:file links:source)
+                                 :where (= links:dest $s1)
                                 ] url-path))
          completions)
     (setq rows (seq-sort-by (lambda (x)
@@ -85,13 +85,13 @@ to the file."
   (let* ((url-path (s-replace-regexp "^http[s]?:"  "" url))
          (rows (org-roam-db-query  [:select [links:properties files:file titles:title tags:tags files:meta] :from links
                                   :left :join titles
-                                 :on (= links:from titles:file)
+                                 :on (= links:source titles:file)
                                  :left :join tags
                                  :on (= titles:file tags:file)
                                  :left :join files
                                  :on (= titles:file files:file)
-                                 :where (= links:to $s1)
-                                 :order-by (asc links:from)
+                                 :where (= links:dest $s1)
+                                 :order-by (asc links:source)
                                 ] url-path))
          completions)
     ;; sort by point in file
