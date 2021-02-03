@@ -60,13 +60,13 @@ to the file."
                             rows))
     (dolist (row rows completions)
       (pcase-let ((`(,file-path ,title ,tags) row))
-        (let ((k (org-roam--prepend-tag-string title tags))
+        (let ((k (org-roam--add-tag-string title tags))
               (v (list :path file-path :title title)))
           (push (cons k v) completions))))))
 
 
-(defun org-roam--prepend-url-place (props title tags)
-  (concat (org-roam--prepend-tag-string title tags) " :" (number-to-string (plist-get props :point)) ":"
+(defun org-roam--prepend-url-place (props title file-from tags)
+  (concat (org-roam--add-tag-string title tags) " :" (number-to-string (plist-get props :point)) ":"
                          "\n"
                          "* "
                          (if-let ((outline (plist-get props :outline)))
@@ -74,7 +74,7 @@ to the file."
                            "Top")
                          "\n"
                           "=> " (s-trim (s-replace "\n" " "
-                                             (plist-get props :content)))
+                                                   (funcall org-roam-buffer-preview-function file-from (plist-get props :point))))
                          "\n\n"
                          ))
 
@@ -106,7 +106,7 @@ to the file."
                             rows))
     (dolist (row rows completions)
       (pcase-let ((`(,props ,file-path ,title ,tags) row))
-        (let ((k (org-roam--prepend-url-place props title tags))
+        (let ((k (org-roam--prepend-url-place props title file-path tags))
               (v (list :path file-path :title title :point (plist-get props :point))))
           (push (cons k v) completions))))
     ))
@@ -202,10 +202,10 @@ When check is available in url, no matter what it is set to, just check if file 
           encodeURIComponent(location.href) + \\='&title=\\=' \\
           encodeURIComponent(document.title) + \\='&body=\\=' + \\
           encodeURIComponent(window.getSelection()) + \\ + \\='&check=\\='
-" 
+"
   (setq ref (plist-get info :ref))
   (setq check (plist-get info :check))
-  (setq opened-file (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))) 
+  (setq opened-file (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))
   (unless (or check opened-file)
     (org-roam-protocol-open-ref info)
     )
