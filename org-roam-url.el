@@ -117,7 +117,6 @@ to the file."
   "Present a PROMPT with CHOICES and optional INITIAL-INPUT.
 If REQUIRE-MATCH is t, the user must select one of the CHOICES.
 Return user choice."
-  (setq org-roam-completion-system 'helm)
   (let (res)
     (setq res
           (cond
@@ -176,10 +175,10 @@ https://github.com/emacs-helm/helm"))
   (unless org-roam-mode (org-roam-mode))
   (let* ((completions (funcall (or filter-fn #'identity)
                                completions))
-         (title-with-tags (case (length completions)
+         (title-with-tags (pcase (length completions)
                              (0 nil)
                              (1 (progn (when setup-fn (funcall setup-fn)) (caar completions)))
-                             (t (if no-confirm
+                             (_ (if no-confirm
                              initial-prompt
                              (when setup-fn (funcall setup-fn))
                              (org-roam-completion--completing-read-url "File: " completions
@@ -191,6 +190,7 @@ https://github.com/emacs-helm/helm"))
         (progn (find-file file-path) (goto-char point) '(t))
       nil)
     ))
+
 (defun org-roam-protocol-open-url (info)
   "Process an org-protocol://roam-url?ref= style url with INFO.
 
@@ -203,13 +203,14 @@ When check is available in url, no matter what it is set to, just check if file 
           encodeURIComponent(document.title) + \\='&body=\\=' + \\
           encodeURIComponent(window.getSelection()) + \\ + \\='&check=\\='
 "
-  (setq ref (plist-get info :ref))
-  (setq check (plist-get info :check))
-  (setq opened-file (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))
+  (let* (
+  (ref (plist-get info :ref))
+  (check (plist-get info :check))
+  (opened-file (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))))
   (unless (or check opened-file)
     (org-roam-protocol-open-ref info)
     )
-  )
+  ))
 
 (push '("org-roam-url"  :protocol "roam-url"   :function org-roam-protocol-open-url)
       org-protocol-protocol-alist)
