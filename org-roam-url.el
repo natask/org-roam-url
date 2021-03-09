@@ -162,6 +162,79 @@ https://github.com/emacs-helm/helm"))
         (funcall action res)
       res)))
 
+;;; progressive
+(defun org-roam-url--url-components (url)
+  "Take URL and return a reversed url list split on /."
+  (let* ((val (url-generic-parse-url url))
+         (val-host (url-host val))
+         (val-file (url-filename val)))
+    (reverse (split-string (concat val-host val-file) "/"))))
+
+(defun org-roam-url--progressive-paths (url-comp)
+  "Take a list of URL-COMP and generate upto three level deep path."
+  (pcase url-comp
+    (`(,first ,second ,third) `(("%%" ,first ,second ,third)))
+    (`(,head . ,tail) (cons (cons  "%%"  url-comp) (org-roam-url--progressive-paths (cdr url-comp))))
+    (`nil `nil)))
+
+(defun org-roam-url--to-url-list (url-list)
+  "Take a list of URL-LIST and turn into a list of urls."
+  (mapcar (lambda (x) (reduce
+                       (lambda (y z) (concat z "/" y)) x))
+          url-list))
+
+(defun org-roam-url--cap-url (url-list)
+  "Prepend urls in URL-LIST with //."
+  (mapcar (lambda (x) (concat "//" x)) url-list))
+
+(defun org-roam-url--progressive-urls (url)
+  "Turn a URL into a list of progressive url paths."
+  (-as-> url it
+         (org-roam-url--url-components it)
+         (org-roam-url--progressive-paths it)
+         (org-roam-url--to-url-list it)
+         (org-roam-url--cap-url it)))
+
+(defun org-roam-url-db--query-files (url-path)
+  "Find files containing a url that is like URL-PATH."
+  (org-roam-db-query  [:select [links:properties files:file titles:title tags:tags files:meta] :from links
+                       :left :join titles
+                       :on (= links:source titles:file)
+                       :left :join tags
+                       :on (= titles:file tags:file)
+                       :left :join files
+                       :on (= titles:file files:file)
+                       :where (like links:dest $s1)
+                       :order-by (asc links:source)
+                       ] url-path))
+
+(defun org-roam--get-url-place-title-path-completions-progressively (url)
+  "Return title path completions for URL progressively.
+Find files that contain a portion of URL.
+The car is the displayed title for completion, and the cdr is the
+to the file."
+  (let* ((rows '())
+         completions)
+    (dolist (progressive-url (org-roam-url--progressive-urls url))
+      (setq rows (append rows (org-roam-url-db--query-files progressive-url))))
+    ;; sort by point in file
+    (setq rows (delete-dups rows))
+    (setq rows (seq-sort-by (lambda (x)
+                              (plist-get (nth 0 x) :point))
+                            #'<
+                            rows))
+    ;; then by file opening time
+    (setq rows (seq-sort-by (lambda (x)
+                              (plist-get (nth 4 x) :mtime))
+                            #'time-less-p
+                            rows))
+    (dolist (row rows completions)
+      (pcase-let ((`(,props ,file-path ,title ,tags) row))
+        (let ((k (org-roam--prepend-url-place props title file-path tags))
+              (v (list :path file-path :title title :point (plist-get props :point))))
+          (push (cons k v) completions))))))
+
+;;; common tools
 (defun org-roam-find-file-url (initial-prompt completions &optional filter-fn no-confirm setup-fn)
   "Find and open an Org-roam file.
   INITIAL-PROMPT is the initial title prompt.
@@ -201,16 +274,17 @@ When check is available in url, no matter what it is set to, just check if file 
     javascript:location.href = \\='org-protocol://roam-url?template=r&ref=\\='+ \\
           encodeURIComponent(location.href) + \\='&title=\\=' \\
           encodeURIComponent(document.title) + \\='&body=\\=' + \\
-          encodeURIComponent(window.getSelection()) + \\ + \\='&check=\\='
+          encodeURIComponent(window.getSelection()) + \\ + \\='&check=\\=' + anything + \\='&progressive=\\=' anything
 "
-  (let* (
-         (ref (plist-get info :ref))
-         (check (plist-get info :check))
-         (opened-file (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))))
-    (unless (or check opened-file)
-      (org-roam-protocol-open-ref info)
-      )
-    ))
+  (let* ((ref (plist-get info :ref))
+  (check (plist-get info :check))
+  (progressive (plist-get info :progressive))
+  (opened-file (if progressive
+                   (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions-progressively ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
+                   (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))))
+  (unless (or check opened-file)
+    (org-roam-protocol-open-ref info)
+    )))
 
 (push '("org-roam-url"  :protocol "roam-url"   :function org-roam-protocol-open-url)
       org-protocol-protocol-alist)
