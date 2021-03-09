@@ -52,6 +52,20 @@
           (function :tag "Custom function"))
   :group 'org-roam-url)
 
+(defcustom org-roam-url-max-depth 3
+  "The max depth of url examined by `org-roam-url'."
+  :type '(integer)
+  :group 'org-roam-url)
+
+(defcustom org-roam-url-max-results 30
+  "The max number of results returned through querying database."
+  :type '(integer)
+  :group 'org-roam-url)
+
+(defcustom org-roam-url-stop-on-first-result 't
+  "Stops after there is a result or depth which ever one comes first."
+  :type '(boolean)
+  :group 'org-roam-url)
 ;;;; Functions
 
 (defun org-roam--get-url-title-path-completions (url)
@@ -188,11 +202,16 @@ https://github.com/emacs-helm/helm"))
     (reverse (split-string (concat val-host val-file) "/"))))
 
 (defun org-roam-url--progressive-paths (url-comp)
-  "Take a list of URL-COMP and generate upto three level deep path."
-  (pcase url-comp
-    (`(,first ,second ,third) `(("%%" ,first ,second ,third)))
-    (`(,head . ,tail) (cons (cons  "%%"  url-comp) (org-roam-url--progressive-paths (cdr url-comp))))
-    (`nil `nil)))
+  "Take a list of URL-COMP and generate upto `org-roam-url-max-depth'."
+  (org-roam-url--progressive-paths-helper url-comp org-roam-url-max-depth))
+
+(defun org-roam-url--progressive-paths-helper (url-comp depth)
+  "Take a list of URL-COMP and generate upto DEPTH."
+  (pcase (list url-comp depth)
+    (`((,_ . ,_) 0) (list (cons "%%" url-comp)))
+                                        ;(`(,first ,second ,third) `(("%%" ,first ,second ,third)))
+    (`((,_ . ,tail) ,n) (cons (cons  "%%"  (copy-seq url-comp)) (org-roam-url--progressive-paths-helper (cdr (copy-seq url-comp)) (- n 1))))
+    (`(nil ,_) `nil)))
 
 (defun org-roam-url--to-url-list (url-list)
   "Take a list of URL-LIST and turn into a list of urls."
@@ -223,7 +242,8 @@ https://github.com/emacs-helm/helm"))
                        :on (= titles:file files:file)
                        :where (like links:dest $s1)
                        :order-by (asc links:source)
-                       ] url-path))
+                       :limit $2
+                       ] url-path org-roam-url-max-results))
 
 (defun org-roam--get-url-place-title-path-completions-progressively (url)
   "Return title path completions for URL progressively.
@@ -233,7 +253,8 @@ to the file."
   (let* ((rows '())
          completions)
     (dolist (progressive-url (org-roam-url--progressive-urls url))
-      (setq rows (append rows (org-roam-url-db--query-files progressive-url))))
+      (if (not (and rows org-roam-url-stop-on-first-result))
+        (setq rows (append rows (org-roam-url-db--query-files progressive-url)))))
     ;; sort by point in file
     (setq rows (delete-dups rows))
     (setq rows (seq-sort-by (lambda (x)
