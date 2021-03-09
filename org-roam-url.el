@@ -45,14 +45,14 @@ The car is the displayed title for completion, and the cdr is the
 to the file."
   (let* ((url-path (s-replace-regexp "http[s]?:"  "" url))
          (rows (org-roam-db-query  [:select [files:file titles:title tags:tags files:meta] :from titles
-                                 :left :join tags
-                                 :on (= titles:file tags:file)
-                                 :left :join files
-                                 :on (= titles:file files:file)
-                                 :left :join links
-                                 :on (= files:file links:source)
-                                 :where (= links:dest $s1)
-                                ] url-path))
+                                    :left :join tags
+                                    :on (= titles:file tags:file)
+                                    :left :join files
+                                    :on (= titles:file files:file)
+                                    :left :join links
+                                    :on (= files:file links:source)
+                                    :where (= links:dest $s1)
+                                    ] url-path))
          completions)
     (setq rows (seq-sort-by (lambda (x)
                               (plist-get (nth 3 x) :mtime))
@@ -67,16 +67,16 @@ to the file."
 
 (defun org-roam--prepend-url-place (props title file-from tags)
   (concat (org-roam--add-tag-string title tags) " :" (number-to-string (plist-get props :point)) ":"
-                         "\n"
-                         "* "
-                         (if-let ((outline (plist-get props :outline)))
-                             (string-join outline " > ")
-                           "Top")
-                         "\n"
-                          "=> " (s-trim (s-replace "\n" " "
-                                                   (funcall org-roam-buffer-preview-function file-from (plist-get props :point))))
-                         "\n\n"
-                         ))
+          "\n"
+          "* "
+          (if-let ((outline (plist-get props :outline)))
+              (string-join outline " > ")
+            "Top")
+          "\n"
+          "=> " (s-trim (s-replace "\n" " "
+                                   (funcall org-roam-buffer-preview-function file-from (plist-get props :point))))
+          "\n\n"
+          ))
 
 (defun org-roam--get-url-place-title-path-completions (url)
   "Return an alist for completion.
@@ -84,15 +84,15 @@ The car is the displayed title for completion, and the cdr is the
 to the file."
   (let* ((url-path (s-replace-regexp "^http[s]?:"  "" url))
          (rows (org-roam-db-query  [:select [links:properties files:file titles:title tags:tags files:meta] :from links
-                                  :left :join titles
-                                 :on (= links:source titles:file)
-                                 :left :join tags
-                                 :on (= titles:file tags:file)
-                                 :left :join files
-                                 :on (= titles:file files:file)
-                                 :where (= links:dest $s1)
-                                 :order-by (asc links:source)
-                                ] url-path))
+                                    :left :join titles
+                                    :on (= links:source titles:file)
+                                    :left :join tags
+                                    :on (= titles:file tags:file)
+                                    :left :join files
+                                    :on (= titles:file files:file)
+                                    :where (= links:dest $s1)
+                                    :order-by (asc links:source)
+                                    ] url-path))
          completions)
     ;; sort by point in file
     (setq rows (seq-sort-by (lambda (x)
@@ -112,8 +112,8 @@ to the file."
     ))
 
 (cl-defun org-roam-completion--completing-read-url (prompt choices &key
-                                                       require-match initial-input
-                                                       action)
+                                                           require-match initial-input
+                                                           action)
   "Present a PROMPT with CHOICES and optional INITIAL-INPUT.
 If REQUIRE-MATCH is t, the user must select one of the CHOICES.
 Return user choice."
@@ -176,13 +176,13 @@ https://github.com/emacs-helm/helm"))
   (let* ((completions (funcall (or filter-fn #'identity)
                                completions))
          (title-with-tags (pcase (length completions)
-                             (0 nil)
-                             (1 (progn (when setup-fn (funcall setup-fn)) (caar completions)))
-                             (_ (if no-confirm
-                             initial-prompt
-                             (when setup-fn (funcall setup-fn))
-                             (org-roam-completion--completing-read-url "File: " completions
-                                                                       :initial-input initial-prompt)))))
+                            (0 nil)
+                            (1 (progn (when setup-fn (funcall setup-fn)) (caar completions)))
+                            (_ (if no-confirm
+                                   initial-prompt
+                                 (when setup-fn (funcall setup-fn))
+                                 (org-roam-completion--completing-read-url "File: " completions
+                                                                           :initial-input initial-prompt)))))
          (res (cdr (assoc title-with-tags completions)))
          (file-path  (plist-get res :path))
          (point  (plist-get res :point)))
@@ -204,13 +204,13 @@ When check is available in url, no matter what it is set to, just check if file 
           encodeURIComponent(window.getSelection()) + \\ + \\='&check=\\='
 "
   (let* (
-  (ref (plist-get info :ref))
-  (check (plist-get info :check))
-  (opened-file (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))))
-  (unless (or check opened-file)
-    (org-roam-protocol-open-ref info)
-    )
-  ))
+         (ref (plist-get info :ref))
+         (check (plist-get info :check))
+         (opened-file (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))))
+    (unless (or check opened-file)
+      (org-roam-protocol-open-ref info)
+      )
+    ))
 
 (push '("org-roam-url"  :protocol "roam-url"   :function org-roam-protocol-open-url)
       org-protocol-protocol-alist)
