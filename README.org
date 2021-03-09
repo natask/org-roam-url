@@ -1,0 +1,66 @@
+#+TITLE: org-roam-url
+* Motivation
+#+begin_quote
+I come straight from the browser, would you let me in?
+#+end_quote
+
+Find if a website I am currently visiting is within my org roam files directly from the browser. If it is found in multiple files, bring up an option buffer to select from.
+
+I use surfingkeys to map commands in my browser that go through org roam's database.
+* Installation
+- doom ::
+#+begin_src emacs-lisp
+(package! org-roam-url
+  :recipe (:host github
+           :repo "natask/org-roam-url"
+           :branch  "master"
+           :files ( "*.el")))
+#+end_src
+
+- melpa/spacemacs ::
+#+begin_src emacs-lisp
+(org-roam-url
+ :location (recipe :fetcher github
+                   :repo "natask/org-roam-url"
+                   :branch  "master"
+                   :files ( "*.el")))
+#+end_src
+
+- surfingkeys ::
+#+begin_src js
+// setup org protocol website
+mapkey('cw', 'org protocol capture website', function() {
+    javascript:location.href =
+        'org-protocol://roam-url?template=w&ref='
+        + encodeURIComponent(location.href)
+        + '&title='
+        + encodeURIComponent(document.title);
+});
+
+// setup org protocol website
+mapkey('cd', 'org protocol capture direct', function() {
+    javascript:location.href =
+        'org-protocol://roam-ref?template=w&ref='
+        + encodeURIComponent(location.href)
+        + '&title='
+        + encodeURIComponent(document.title);
+});
+
+// setup org protocol website
+mapkey('cc', 'org protocol capture check website', function() {
+    javascript:location.href =
+        'org-protocol://roam-url?template=w&ref='
+        + encodeURIComponent(location.href)
+        + '&title='
+        + encodeURIComponent(document.title) + '&check=';
+});
+
+// setup org protocol website
+mapkey('cp', 'org protocol capture check progressively website', function() {
+    javascript:location.href =
+        'org-protocol://roam-url?template=w&ref='
+        + encodeURIComponent(location.href)
+        + '&title='
+        + encodeURIComponent(document.title) + '&check=' + "&progressive=";
+});
+#+end_src
