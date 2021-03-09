@@ -37,6 +37,21 @@
 (require 'org-protocol)
 (require 'org-roam-protocol)
 (require 'org-roam)
+
+;;;; Vars
+(defconst helm-org-url-fontify-buffer-name " *helm-org-url-fontify*"
+  "The name of the invisible buffer used to fontify `org-mode' strings.")
+
+(defcustom org-roam-url-completion-system 'helm
+  "The completion system to be used by `org-roam-url'."
+  :type '(radio
+          (const :tag "Default" default)
+          (const :tag "Ido" ido)
+          (const :tag "Ivy" ivy)
+          (const :tag "Helm" helm)
+          (function :tag "Custom function"))
+  :group 'org-roam-url)
+
 ;;;; Functions
 
 (defun org-roam--get-url-title-path-completions (url)
@@ -120,12 +135,12 @@ Return user choice."
   (let (res)
     (setq res
           (cond
-           ((eq org-roam-completion-system 'ido)
+           ((eq org-roam-url-completion-system 'ido)
             (let ((candidates (mapcar #'car choices)))
               (ido-completing-read prompt candidates nil require-match initial-input)))
-           ((eq org-roam-completion-system 'default)
+           ((eq org-roam-url-completion-system 'default)
             (completing-read prompt choices nil require-match initial-input))
-           ((eq org-roam-completion-system 'ivy)
+           ((eq org-roam-url-completion-system 'ivy)
             (if (fboundp 'ivy-read)
                 (ivy-read prompt choices
                           :initial-input initial-input
@@ -135,14 +150,16 @@ Return user choice."
                           :caller 'org-roam--completing-read)
               (user-error "Please install ivy from \
 https://github.com/abo-abo/swiper")))
-           ((eq org-roam-completion-system 'helm)
+           ((eq org-roam-url-completion-system 'helm)
             (unless (and (fboundp 'helm)
                          (fboundp 'helm-make-source))
               (user-error "Please install helm from \
 https://github.com/emacs-helm/helm"))
-            (let ((source (helm-make-source prompt 'helm-source-sync
-                            :candidates (mapcar #'car choices)
+            (let ((source (helm-build-sync-source prompt
+                            :candidates (mapcar (-compose #'helm-org-rifle-fontify-like-in-org-mode #'car) choices)
                             :multiline t
+                            :volatile t
+                            :match 'identity
                             :filtered-candidate-transformer
                             (and (not require-match)
                                  #'org-roam-completion--helm-candidate-transformer)))
@@ -235,6 +252,30 @@ to the file."
           (push (cons k v) completions))))))
 
 ;;; common tools
+(defun helm-org-url-fontify-like-in-org-mode (s &optional odd-levels)
+"Fontify string S like in Org-mode.
+
+stripped from org-rifle.
+
+`org-fontify-like-in-org-mode' is a very, very slow function
+because it creates a new temporary buffer and runs `org-mode' for
+every string it fontifies.  This function reuses a single
+invisible buffer and only runs `org-mode' when the buffer is
+created."
+(let ((buffer (get-buffer helm-org-url-fontify-buffer-name)))
+  (unless buffer
+    (setq buffer (get-buffer-create helm-org-url-fontify-buffer-name))
+    (with-current-buffer buffer
+      (org-mode)))
+  (with-current-buffer buffer
+    (erase-buffer)
+    (insert s)
+    (let ((org-odd-levels-only odd-levels))
+      ;; FIXME: "Warning: ‘font-lock-fontify-buffer’ is for interactive use only; use
+      ;; ‘font-lock-ensure’ or ‘font-lock-flush’ instead."
+      (font-lock-fontify-buffer)
+      (buffer-string)))))
+
 (defun org-roam-find-file-url (initial-prompt completions &optional filter-fn no-confirm setup-fn)
   "Find and open an Org-roam file.
   INITIAL-PROMPT is the initial title prompt.
