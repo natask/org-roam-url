@@ -170,7 +170,7 @@ https://github.com/abo-abo/swiper")))
               (user-error "Please install helm from \
 https://github.com/emacs-helm/helm"))
             (let ((source (helm-build-sync-source prompt
-                            :candidates (mapcar (-compose #'helm-org-rifle-fontify-like-in-org-mode #'car) choices)
+                            :candidates (mapcar (-compose #'helm-org-url-fontify-like-in-org-mode #'car) choices)
                             :multiline t
                             :volatile t
                             :match 'identity
