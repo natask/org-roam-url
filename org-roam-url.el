@@ -196,10 +196,8 @@ https://github.com/emacs-helm/helm"))
 ;;; progressive
 (defun org-roam-url--url-components (url)
   "Take URL and return a reversed url list split on /."
-  (let* ((val (url-generic-parse-url url))
-         (val-host (url-host val))
-         (val-file (url-filename val)))
-    (reverse (split-string (concat val-host val-file) "/"))))
+  (let ((url-head (s-replace-regexp "http[s]?://"  "" url)))
+    (reverse (split-string url-head "/"))))
 
 (defun org-roam-url--progressive-paths (url-comp)
   "Take a list of URL-COMP and generate upto `org-roam-url-max-depth'."
@@ -208,9 +206,9 @@ https://github.com/emacs-helm/helm"))
 (defun org-roam-url--progressive-paths-helper (url-comp depth)
   "Take a list of URL-COMP and generate upto DEPTH."
   (pcase (list url-comp depth)
-    (`((,_ . ,_) 0) (list (cons "%%" url-comp)))
+    (`((,_ . ,_) 0) url-comp)
                                         ;(`(,first ,second ,third) `(("%%" ,first ,second ,third)))
-    (`((,_ . ,tail) ,n) (cons (cons  "%%"  (copy-seq url-comp)) (org-roam-url--progressive-paths-helper (cdr (copy-seq url-comp)) (- n 1))))
+    (`((,_ . ,tail) ,n) (cons (copy-seq url-comp) (org-roam-url--progressive-paths-helper (cdr (copy-seq url-comp)) (- n 1))))
     (`(nil ,_) `nil)))
 
 (defun org-roam-url--to-url-list (url-list)
@@ -223,13 +221,18 @@ https://github.com/emacs-helm/helm"))
   "Prepend urls in URL-LIST with //."
   (mapcar (lambda (x) (concat "//" x)) url-list))
 
+(defun org-roam-url--term-url (url-list)
+  "Suffix urls in URL-LIST with %%."
+  (mapcar (lambda (x) (concat x "%%")) url-list))
+
 (defun org-roam-url--progressive-urls (url)
   "Turn a URL into a list of progressive url paths."
   (-as-> url it
          (org-roam-url--url-components it)
          (org-roam-url--progressive-paths it)
          (org-roam-url--to-url-list it)
-         (org-roam-url--cap-url it)))
+         (org-roam-url--cap-url it)
+         (org-roam-url--term-url it)))
 
 (defun org-roam-url-db--query-files (url-path)
   "Find files containing a url that is like URL-PATH."
