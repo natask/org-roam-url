@@ -325,9 +325,12 @@ created."
          (file-path  (plist-get res :path))
          (point  (plist-get res :point)))
     (if file-path
-        (progn (find-file file-path) (goto-char point) '(t))
-      nil)
-    ))
+        (org-roam-with-file file-path 't
+          (let ((win (get-buffer-window buf 't)))
+            (if win
+                (select-window win)
+              (switch-to-buffer buf) ; If FILE is already visited, find buffer
+              (goto-char point)))))))
 
 (defun org-roam-protocol-open-url (info)
   "Process an org-protocol://roam-url?ref= style url with INFO.
