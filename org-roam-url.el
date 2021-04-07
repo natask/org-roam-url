@@ -206,9 +206,9 @@ https://github.com/emacs-helm/helm"))
 (defun org-roam-url--progressive-paths-helper (url-comp depth)
   "Take a list of URL-COMP and generate upto DEPTH."
   (pcase (list url-comp depth)
-    (`((,_ . ,_) 0) url-comp)
+    (`((,_ . ,_) 0) (list url-comp))
                                         ;(`(,first ,second ,third) `(("%%" ,first ,second ,third)))
-    (`((,_ . ,tail) ,n) (cons (copy-seq url-comp) (org-roam-url--progressive-paths-helper (cdr (copy-seq url-comp)) (- n 1))))
+    (`((,_ . ,tail) ,n) (cons (copy-seq url-comp) (org-roam-url--progressive-paths-helper (copy-seq tail) (- n 1))))
     (`(nil ,_) `nil)))
 
 (defun org-roam-url--to-url-list (url-list)
