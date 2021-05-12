@@ -66,6 +66,12 @@
   "Stops after there is a result or depth which ever one comes first."
   :type '(boolean)
   :group 'org-roam-url)
+
+(defcustom org-roam-url-auto-complete-on-single-result 't
+  "Auto complete if their is only a single result."
+  :type '(boolean)
+  :group 'org-roam-url)
+
 ;;;; Functions
 
 (defun org-roam--get-url-title-path-completions (url)
@@ -300,7 +306,7 @@ created."
       (font-lock-fontify-buffer)
       (buffer-string)))))
 
-(defun org-roam-find-file-url (initial-prompt completions &optional filter-fn no-confirm setup-fn)
+(cl-defun org-roam-find-file-url (initial-prompt completions &key filter-fn no-confirm setup-fn)
   "Find and open an Org-roam file.
   INITIAL-PROMPT is the initial title prompt.
   COMPLETIONS is a list of completions to be used instead of
@@ -308,14 +314,15 @@ created."
   FILTER-FN is the name of a function to apply on the candidates
   which takes as its argument an alist of path-completions.  See
   `org-roam--get-title-path-completions' for details.
-  If NO-CONFIRM, assume that the user does not want to modify the initial prompt."
+  If NO-CONFIRM, assume that the user does not want to modify the initial prompt.
+  Call SETUP-FN before conducting completion. Useful to focus Emacs."
   (interactive)
   (unless org-roam-mode (org-roam-mode))
   (let* ((completions (funcall (or filter-fn #'identity)
                                completions))
-         (title-with-tags (pcase (length completions)
-                            (0 nil)
-                            (1 (progn (when setup-fn (funcall setup-fn)) (caar completions)))
+         (title-with-tags (pcase (list (length completions) (not org-roam-url-auto-complete-on-single-result))
+                            (`(0 . cdr) nil)
+                            (`(1 nil) (progn (when setup-fn (funcall setup-fn)) (caar completions)))
                             (_ (if no-confirm
                                    initial-prompt
                                  (when setup-fn (funcall setup-fn))
@@ -329,8 +336,10 @@ created."
           (let ((win (get-buffer-window buf 't)))
             (if win
                 (select-window win)
-              (switch-to-buffer buf) ; If FILE is already visited, find buffer
-              (goto-char point)))))))
+              (switch-to-buffer buf)) ; If FILE is already visited, find buffer
+              (goto-char point)
+              (org-show-context)
+              't)))))
 
 (defun org-roam-protocol-open-url (info)
   "Process an org-protocol://roam-url?ref= style url with INFO.
@@ -346,10 +355,11 @@ When check is available in url, no matter what it is set to, just check if file 
 "
   (let* ((ref (plist-get info :ref))
   (check (plist-get info :check))
+  (org-roam-url-auto-complete-on-single-result (not (plist-get info :noauto)))
   (progressive (plist-get info :progressive))
   (opened-file (if progressive
-                   (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions-progressively ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
-                   (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) nil nil (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))))
+                   (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions-progressively ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
+                   (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))))
   (unless (or check opened-file)
     (org-roam-protocol-open-ref info)
     )))
