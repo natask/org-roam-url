@@ -321,7 +321,7 @@ created."
   (let* ((completions (funcall (or filter-fn #'identity)
                                completions))
          (title-with-tags (pcase (list (length completions) (not org-roam-url-auto-complete-on-single-result))
-                            (`(0 . cdr) nil)
+                            (`(0 . ,cdr) nil)
                             (`(1 nil) (progn (when setup-fn (funcall setup-fn)) (caar completions)))
                             (_ (if no-confirm
                                    initial-prompt
