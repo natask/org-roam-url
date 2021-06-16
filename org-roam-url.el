@@ -203,7 +203,25 @@ https://github.com/emacs-helm/helm"))
 (defun org-roam-url--url-components (url)
   "Take URL and return a reversed url list split on /."
   (let ((url-head (s-replace-regexp "http[s]?://"  "" url)))
-    (reverse (split-string url-head "/"))))
+    (-as-> (split-string url-head "/") it
+           (mapcar (lambda (x) (list x "/")) it)
+           (reverse it)
+           (let ((before it))
+             (-as-> (caar it) string
+                    (let ((index 0)
+                          (next-index 0)
+                          res)
+                      (while (and (setq next-index (string-match "[&#]" string
+			                                         (if (and (not (equal index 0))
+                                                                          (< index (length string)))
+				                                     (1+ index) index)))
+		                        (< index (length string)))
+                        (push (list (substring string index next-index) (substring string  next-index (+ 1 next-index))) res)
+                        (setq index (+ 1 next-index)))
+                      (if (< index  (length string))
+                      (push (list (substring string index) "") res))
+                      res)
+                    (append string (cdr before)))))))
 
 (defun org-roam-url--progressive-paths (url-comp)
   "Take a list of URL-COMP and generate upto `org-roam-url-max-depth'."
@@ -220,7 +238,7 @@ https://github.com/emacs-helm/helm"))
 (defun org-roam-url--to-url-list (url-list)
   "Take a list of URL-LIST and turn into a list of urls."
   (mapcar (lambda (x) (reduce
-                       (lambda (y z) (concat z "/" y)) x))
+                       (lambda (y z) (concat (apply 'concat z) (if (listp y) (apply 'concat y) y))) (cdr x) :initial-value (caar x)))
           url-list))
 
 (defun org-roam-url--cap-url (url-list)
