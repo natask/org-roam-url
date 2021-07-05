@@ -78,7 +78,7 @@
   "Return an alist for completion.
 The car is the displayed title for completion, and the cdr is the
 to the file."
-  (let* ((url-path (s-replace-regexp "http[s]?:"  "" url))
+  (let* ((url-path (s-replace-regexp ".*http[s]?:"  "" url))
          (rows (org-roam-db-query  [:select [files:file titles:title tags:tags files:meta] :from titles
                                     :left :join tags
                                     :on (= titles:file tags:file)
@@ -117,7 +117,7 @@ to the file."
   "Return an alist for completion.
 The car is the displayed title for completion, and the cdr is the
 to the file."
-  (let* ((url-path (s-replace-regexp "^http[s]?:"  "" url))
+  (let* ((url-path (s-replace-regexp ".*http[s]?:"  "" url))
          (rows (org-roam-db-query  [:select [links:properties files:file titles:title tags:tags files:meta] :from links
                                     :left :join titles
                                     :on (= links:source titles:file)
@@ -202,7 +202,7 @@ https://github.com/emacs-helm/helm"))
 ;;; progressive
 (defun org-roam-url--url-components (url)
   "Take URL and return a reversed url list split on /."
-  (let ((url-head (s-replace-regexp "http[s]?://"  "" url)))
+  (let ((url-head (s-replace-regexp ".*http[s]?://"  "" url)))
     (-as-> (split-string url-head "/") it
            (mapcar (lambda (x) (list x "/")) it)
            (reverse it)
@@ -247,7 +247,7 @@ https://github.com/emacs-helm/helm"))
 
 (defun org-roam-url--term-url (url-list)
   "Suffix urls in URL-LIST with %%."
-  (mapcar (lambda (x) (concat x "%%")) url-list))
+  (mapcar (lambda (x) (concat "%%" x "%%")) url-list))
 
 (defun org-roam-url--progressive-urls (url)
   "Turn a URL into a list of progressive url paths."
