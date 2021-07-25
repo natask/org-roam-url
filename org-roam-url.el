@@ -256,7 +256,8 @@ https://github.com/emacs-helm/helm"))
          (org-roam-url--progressive-paths it)
          (org-roam-url--to-url-list it)
          (org-roam-url--cap-url it)
-         (org-roam-url--term-url it)))
+         (org-roam-url--term-url it)
+         (cons url it)))
 
 (defun org-roam-url-db--query-files (url-path)
   "Find files containing a url that is like URL-PATH."
