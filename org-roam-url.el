@@ -201,7 +201,11 @@ https://github.com/emacs-helm/helm"))
 
 ;;; progressive
 (defun org-roam-url--url-components (url)
-  "Take URL and return a reversed url list split on /."
+  "Take URL and return a reversed url list split on /.
+Treats & and # as url seperators when they occur on the final path.
+Example:
+https://google.com/search&=happy#complete
+(google.com google.com/search google.com/search&=happy google.come/search&=happy#complete)"
   (let ((url-head (s-replace-regexp ".*http[s]?://"  "" url)))
     (-as-> (split-string url-head "/") it
            (mapcar (lambda (x) (list x "/")) it)
