@@ -146,6 +146,31 @@ to the file."
           (push (cons k v) completions))))
     ))
 
+(defun helm-org-url-fontify-like-in-org-mode (s &optional odd-levels)
+  "Fontify string S like in Org-mode.
+
+stripped from org-rifle.
+
+`org-fontify-like-in-org-mode' is a very, very slow function
+because it creates a new temporary buffer and runs `org-mode' for
+every string it fontifies.  This function reuses a single
+invisible buffer and only runs `org-mode' when the buffer is
+created."
+  (let ((buffer (get-buffer helm-org-url-fontify-buffer-name)))
+    (unless buffer
+      (setq buffer (get-buffer-create helm-org-url-fontify-buffer-name))
+      (with-current-buffer buffer
+        (org-mode)))
+    (with-current-buffer buffer
+      (erase-buffer)
+      (insert s)
+      (let ((org-odd-levels-only odd-levels))
+        ;; FIXME: "Warning: ‘font-lock-fontify-buffer’ is for interactive use only; use
+        ;; ‘font-lock-ensure’ or ‘font-lock-flush’ instead."
+        (font-lock-ensure)
+        (buffer-string)))))
+
+;;;###autoload
 (cl-defun org-roam-url-completion--completing-read (prompt choices &key
                                                            require-match initial-input
                                                            action)
@@ -176,13 +201,13 @@ https://github.com/abo-abo/swiper")))
               (user-error "Please install helm from \
 https://github.com/emacs-helm/helm"))
             (let ((source (helm-build-sync-source prompt
-                            :candidates (mapcar (-compose #'helm-org-url-fontify-like-in-org-mode #'car) choices)
+                            :candidates (mapcar (-compose 'helm-org-url-fontify-like-in-org-mode 'car) choices)
                             :multiline t
                             :volatile t
                             :match 'identity
                             :filtered-candidate-transformer
                             (and (not require-match)
-                                 #'org-roam-completion--helm-candidate-transformer)))
+                                 'org-roam-completion--helm-candidate-transformer)))
                   (buf (concat "*org-roam "
                                (s-downcase (s-chop-suffix ":" (s-trim prompt)))
                                "*")))
@@ -241,7 +266,7 @@ https://google.com/search&=happy#complete
 
 (defun org-roam-url--to-url-list (url-list)
   "Take a list of URL-LIST and turn into a list of urls."
-  (mapcar (lambda (x) (reduce
+  (mapcar (lambda (x) (cl-reduce
                        (lambda (y z) (concat (apply 'concat z) (if (listp y) (apply 'concat y) y))) (cdr x) :initial-value (caar x)))
           url-list))
 
@@ -305,31 +330,9 @@ to the file."
           (push (cons k v) completions))))))
 
 ;;; common tools
-(defun helm-org-url-fontify-like-in-org-mode (s &optional odd-levels)
-"Fontify string S like in Org-mode.
 
-stripped from org-rifle.
 
-`org-fontify-like-in-org-mode' is a very, very slow function
-because it creates a new temporary buffer and runs `org-mode' for
-every string it fontifies.  This function reuses a single
-invisible buffer and only runs `org-mode' when the buffer is
-created."
-(let ((buffer (get-buffer helm-org-url-fontify-buffer-name)))
-  (unless buffer
-    (setq buffer (get-buffer-create helm-org-url-fontify-buffer-name))
-    (with-current-buffer buffer
-      (org-mode)))
-  (with-current-buffer buffer
-    (erase-buffer)
-    (insert s)
-    (let ((org-odd-levels-only odd-levels))
-      ;; FIXME: "Warning: ‘font-lock-fontify-buffer’ is for interactive use only; use
-      ;; ‘font-lock-ensure’ or ‘font-lock-flush’ instead."
-      (font-lock-fontify-buffer)
-      (buffer-string)))))
-
-(cl-defun org-roam-find-file-url (initial-prompt completions &key filter-fn no-confirm setup-fn)
+(cl-defun org-roam-url-find-file (initial-prompt completions &key filter-fn no-confirm setup-fn)
   "Find and open an Org-roam file.
   INITIAL-PROMPT is the initial title prompt.
   COMPLETIONS is a list of completions to be used instead of
@@ -382,8 +385,8 @@ When check is available in url, no matter what it is set to, just check if file 
   (org-roam-capture-additional-template-props (list :no-save 't))
   (progressive (plist-get info :progressive))
   (opened-file (if progressive
-                   (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions-progressively ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
-                   (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))))
+                   (org-roam-url-find-file nil (org-roam--get-url-place-title-path-completions-progressively ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
+                   (org-roam-url-find-file nil (org-roam--get-url-place-title-path-completions ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))))
   (unless (or check opened-file)
     (org-roam-protocol-open-ref info)
     )))
