@@ -146,7 +146,7 @@ to the file."
           (push (cons k v) completions))))
     ))
 
-(cl-defun org-roam-completion--completing-read-url (prompt choices &key
+(cl-defun org-roam-url-completion--completing-read (prompt choices &key
                                                            require-match initial-input
                                                            action)
   "Present a PROMPT with CHOICES and optional INITIAL-INPUT.
@@ -349,7 +349,7 @@ created."
                             (_ (if no-confirm
                                    initial-prompt
                                  (when setup-fn (funcall setup-fn))
-                                 (org-roam-completion--completing-read-url "File: " completions
+                                 (org-roam-url-completion--completing-read "File: " completions
                                                                            :initial-input initial-prompt)))))
          (res (cdr (assoc title-with-tags completions)))
          (file-path  (plist-get res :path))
@@ -379,6 +379,7 @@ When check is available in url, no matter what it is set to, just check if file 
   (let* ((ref (plist-get info :ref))
   (check (plist-get info :check))
   (org-roam-url-auto-complete-on-single-result (not (plist-get info :noauto)))
+  (org-roam-capture-additional-template-props (list :no-save 't))
   (progressive (plist-get info :progressive))
   (opened-file (if progressive
                    (org-roam-find-file-url nil (org-roam--get-url-place-title-path-completions-progressively ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
