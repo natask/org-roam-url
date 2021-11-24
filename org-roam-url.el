@@ -37,20 +37,11 @@
 (require 'org-protocol)
 (require 'org-roam-protocol)
 (require 'org-roam)
+(require 'helm)
 
 ;;;; Vars
 (defconst helm-org-url-fontify-buffer-name " *helm-org-url-fontify*"
   "The name of the invisible buffer used to fontify `org-mode' strings.")
-
-(defcustom org-roam-url-completion-system 'helm
-  "The completion system to be used by `org-roam-url'."
-  :type '(radio
-          (const :tag "Default" default)
-          (const :tag "Ido" ido)
-          (const :tag "Ivy" ivy)
-          (const :tag "Helm" helm)
-          (function :tag "Custom function"))
-  :group 'org-roam-url)
 
 (defcustom org-roam-url-max-depth 3
   "The max depth of url examined by `org-roam-url'."
@@ -74,32 +65,6 @@
 
 ;;;; Functions
 
-(defun org-roam--get-url-title-path-completions (url)
-  "Return an alist for completion.
-The car is the displayed title for completion, and the cdr is the
-to the file."
-  (let* ((url-path (s-replace-regexp ".*http[s]?:"  "" url))
-         (rows (org-roam-db-query  [:select [files:file titles:title tags:tags files:meta] :from titles
-                                    :left :join tags
-                                    :on (= titles:file tags:file)
-                                    :left :join files
-                                    :on (= titles:file files:file)
-                                    :left :join links
-                                    :on (= files:file links:source)
-                                    :where (= links:dest $s1)
-                                    ] url-path))
-         completions)
-    (setq rows (seq-sort-by (lambda (x)
-                              (plist-get (nth 3 x) :mtime))
-                            #'time-less-p
-                            rows))
-    (dolist (row rows completions)
-      (pcase-let ((`(,file-path ,title ,tags) row))
-        (let ((k (org-roam--add-tag-string title tags))
-              (v (list :path file-path :title title)))
-          (push (cons k v) completions))))))
-
-
 (defun org-roam--prepend-url-place (props title file-from tags)
   (concat (org-roam--add-tag-string title tags) " :" (number-to-string (plist-get props :point)) ":"
           "\n"
@@ -112,39 +77,6 @@ to the file."
                                    (funcall org-roam-buffer-preview-function file-from (plist-get props :point))))
           "\n\n"
           ))
-
-(defun org-roam--get-url-place-title-path-completions (url)
-  "Return an alist for completion.
-The car is the displayed title for completion, and the cdr is the
-to the file."
-  (let* ((url-path (s-replace-regexp ".*http[s]?:"  "" url))
-         (rows (org-roam-db-query  [:select [links:properties files:file titles:title tags:tags files:meta] :from links
-                                    :left :join titles
-                                    :on (= links:source titles:file)
-                                    :left :join tags
-                                    :on (= titles:file tags:file)
-                                    :left :join files
-                                    :on (= titles:file files:file)
-                                    :where (= links:dest $s1)
-                                    :order-by (asc links:source)
-                                    ] url-path))
-         completions)
-    ;; sort by point in file
-    (setq rows (seq-sort-by (lambda (x)
-                              (plist-get (nth 0 x) :point))
-                            #'<
-                            rows))
-    ;; then by file opening time
-    (setq rows (seq-sort-by (lambda (x)
-                              (plist-get (nth 4 x) :mtime))
-                            #'time-less-p
-                            rows))
-    (dolist (row rows completions)
-      (pcase-let ((`(,props ,file-path ,title ,tags) row))
-        (let ((k (org-roam--prepend-url-place props title file-path tags))
-              (v (list :path file-path :title title :point (plist-get props :point))))
-          (push (cons k v) completions))))
-    ))
 
 (defun helm-org-url-fontify-like-in-org-mode (s &optional odd-levels)
   "Fontify string S like in Org-mode.
@@ -170,59 +102,51 @@ created."
         (font-lock-ensure)
         (buffer-string)))))
 
+(defun org-roam-url--nodes-to-candidates (nodes)
+  (mapcar
+   (lambda (node)
+     (cons
+      (concat (reduce (lambda (x y) (concat x "\n" y)) (org-roam-node-aliases node) (org-roam-node-title node))
+              "\n" (org-make-tag-string (org-roam-node-tags nodes))
+              "\n" (combine-and-quote-strings (org-roam-node-olp nodes))
+              "\n" (combine-and-quote-strings (org-roam-node-properties nodes)))
+      node))
+   nodes))
+
+(defvar org-roam-url--kill-buffers-list 'nil
+  "List of buffers to kill when completion framework exits.
+buffers opened using persistent-action.")
+
 ;;;###autoload
 (cl-defun org-roam-url-completion--completing-read (prompt choices &key
-                                                           require-match initial-input
-                                                           action)
+                                                           require-match initial-input)
   "Present a PROMPT with CHOICES and optional INITIAL-INPUT.
 If REQUIRE-MATCH is t, the user must select one of the CHOICES.
 Return user choice."
-  (let (res)
-    (setq res
-          (cond
-           ((eq org-roam-url-completion-system 'ido)
-            (let ((candidates (mapcar #'car choices)))
-              (ido-completing-read prompt candidates nil require-match initial-input)))
-           ((eq org-roam-url-completion-system 'default)
-            (completing-read prompt choices nil require-match initial-input))
-           ((eq org-roam-url-completion-system 'ivy)
-            (if (fboundp 'ivy-read)
-                (ivy-read prompt choices
-                          :initial-input initial-input
-                          :require-match require-match
-                          :action (prog1 action
-                                    (setq action nil))
-                          :caller 'org-roam--completing-read)
-              (user-error "Please install ivy from \
-https://github.com/abo-abo/swiper")))
-           ((eq org-roam-url-completion-system 'helm)
-            (unless (and (fboundp 'helm)
-                         (fboundp 'helm-make-source))
-              (user-error "Please install helm from \
-https://github.com/emacs-helm/helm"))
-            (let ((source (helm-build-sync-source prompt
-                            :candidates (mapcar (-compose 'helm-org-url-fontify-like-in-org-mode 'car) choices)
-                            :multiline t
-                            :volatile t
-                            :match 'identity
-                            :filtered-candidate-transformer
-                            (and (not require-match)
-                                 'org-roam-completion--helm-candidate-transformer)))
-                  (buf (concat "*org-roam "
-                               (s-downcase (s-chop-suffix ":" (s-trim prompt)))
-                               "*")))
-              (or (helm :sources source
-                        :action (if action
-                                    (prog1 action
-                                      (setq action nil))
-                                  #'identity)
-                        :prompt prompt
+  (let ((nodes  (org-roam-url--nodes-to-candidates choices)))
+    (let ((source (helm-build-sync-source prompt
+                    :candidates nodes
+                    :multiline t
+                    :volatile t
+                    :match 'identity
+                    :persistent-action  #'(lambda (candidate)
+                                            (let ((condition (find-buffer-visiting (org-roam-node-file candidate)))
+                                                  (buffer (org-roam-node-visit candidate 't)))
+                                              (unless condition
+                                                (add-to-list 'org-roam-search--kill-buffers-list buffer))))))
+          (buf (concat "*org-roam-url "
+                       (s-downcase (s-chop-suffix ":" (s-trim prompt)))
+                       "*")))
+      (or
+       (let ((res (helm :sources source
                         :input initial-input
-                        :buffer buf)
-                  (keyboard-quit))))))
-    (if action
-        (funcall action res)
-      res)))
+                        :prompt prompt
+                        :buffer buf)))
+         (dolist (buf org-roam-url--kill-buffers-list)
+           (kill-buffer buf))
+         (setq org-roam-url--kill-buffers-list 'nil)
+         (car res))
+       (keyboard-quit)))))
 
 ;;; progressive
 (defun org-roam-url--url-components (url)
@@ -244,11 +168,11 @@ https://google.com/search&=happy#complete
 			                                         (if (and (not (equal index 0))
                                                                           (< index (length string)))
 				                                     (1+ index) index)))
-		                        (< index (length string)))
+		                  (< index (length string)))
                         (push (list (substring string index next-index) (substring string  next-index (+ 1 next-index))) res)
                         (setq index (+ 1 next-index)))
                       (if (< index  (length string))
-                      (push (list (substring string index) "") res))
+                          (push (list (substring string index) "") res))
                       res)
                     (append string (cdr before)))))))
 
@@ -288,51 +212,90 @@ https://google.com/search&=happy#complete
          (org-roam-url--term-url it)
          (cons url it)))
 
-(defun org-roam-url-db--query-files (url-path)
-  "Find files containing a url that is like URL-PATH."
-  (org-roam-db-query  [:select [links:properties files:file titles:title tags:tags files:meta] :from links
-                       :left :join titles
-                       :on (= links:source titles:file)
-                       :left :join tags
-                       :on (= titles:file tags:file)
-                       :left :join files
-                       :on (= titles:file files:file)
-                       :where (like links:dest $s1)
-                       :order-by (asc links:source)
-                       :limit $s2
-                       ] url-path org-roam-url-max-results))
 
-(defun org-roam--get-url-place-title-path-completions-progressively (url)
+(defun org-roam-url--query (url-path)
+  "Find files containing a url that is like URL-PATH.
+  Return `org-roam-search-max' nodes stored in the database matching CONDITIONS as a list of `org-roam-node's."
+  (let* ((where-clause     (if conditions
+                               (car (emacsql-prepare `[:where (like dest ,conditions)]))))
+         (limit-clause     (if org-roam-search-max
+                               (format "limit %d" org-roam-search-max)))
+         (query (concat
+                 "SELECT id, file, filetitle, \"level\", todo, priority,
+           scheduled, deadline , title, olp, atime,
+           mtime, '(' || group_concat(tags, ' ') || ')' as tags,
+           aliases, refs,
+           dest, pos, properties
+           FROM
+           -- outer from clause
+           (
+           SELECT  id,  file, filetitle, \"level\", todo, priority,  scheduled, deadline ,
+             title, olp, atime,  mtime, tags,
+             '(' || group_concat(aliases, ' ') || ')' as aliases,
+             refs,
+             dest, pos, properties
+           FROM
+           -- inner from clause
+             (
+             SELECT  nodes.id as id,  nodes.file as file,  nodes.\"level\" as \"level\",
+               nodes.todo as todo,  nodes.priority as priority,
+               nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
+               nodes.olp as olp,  files.atime as atime,
+               files.title as filetitle,
+               files.mtime as mtime,  tags.tag as tags,    aliases.alias as aliases,
+               '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs,
+               links.dest as dest, links.pos as pos, links.properties as properties
+             FROM nodes
+             LEFT JOIN files ON files.file = nodes.file
+             LEFT JOIN tags ON tags.node_id = nodes.id
+             LEFT JOIN aliases ON aliases.node_id = nodes.id
+             LEFT JOIN refs ON refs.node_id = nodes.id
+             LEFT JOIN links ON links.source = nodes.id
+    "
+                 where-clause
+                 "
+  GROUP BY nodes.id, tags.tag, aliases.alias
+    "
+                 limit-clause
+                 ")
+  GROUP BY id, tags )
+GROUP BY id"))
+         (rows (org-roam-db-query query)))
+    (cl-loop for row in rows
+             append (pcase-let* ((`(,id ,file ,level ,todo ,pos ,priority ,scheduled ,deadline
+                                        ,title ,properties ,olp ,atime ,mtime ,tags ,aliases ,refs)
+                                  row)
+                                 (org-roam-node-create :id id
+                                                       :file file
+                                                       :file-atime atime
+                                                       :file-mtime mtime
+                                                       :level level
+                                                       :point pos
+                                                       :todo todo
+                                                       :priority priority
+                                                       :scheduled scheduled
+                                                       :deadline deadline
+                                                       :title title
+                                                       :aliases aliases
+                                                       :properties properties
+                                                       :olp olp
+                                                       :tags tags
+                                                       :refs refs)))))) ;;NOTE: maybe make a specific struct that would let me hold pos and properities that are link and node specific. also hold link dest.
+
+(defun org-roam--get-url-place-title-path-completions (url &optional level)
   "Return title path completions for URL progressively.
 Find files that contain a portion of URL.
 The car is the displayed title for completion, and the cdr is the
 to the file."
   (let* ((rows '())
+         (org-roam-url-max-depth (or level org-roam-url-max-depth))
          completions)
     (dolist (progressive-url (org-roam-url--progressive-urls url))
       (if (not (and rows org-roam-url-stop-on-first-result))
-        (setq rows (append rows (org-roam-url-db--query-files progressive-url)))))
-    ;; sort by point in file
-    (setq rows (delete-dups rows))
-    (setq rows (seq-sort-by (lambda (x)
-                              (plist-get (nth 0 x) :point))
-                            #'<
-                            rows))
-    ;; then by file opening time
-    (setq rows (seq-sort-by (lambda (x)
-                              (plist-get (nth 4 x) :mtime))
-                            #'time-less-p
-                            rows))
-    (dolist (row rows completions)
-      (pcase-let ((`(,props ,file-path ,title ,tags) row))
-        (let ((k (org-roam--prepend-url-place props title file-path tags))
-              (v (list :path file-path :title title :point (plist-get props :point))))
-          (push (cons k v) completions))))))
+          (setq rows (append rows (org-roam-url--query progressive-url)))))))
 
 ;;; common tools
-
-
-(cl-defun org-roam-url-find-file (initial-prompt completions &key filter-fn no-confirm setup-fn)
+(cl-defun org-roam-url-find-file (completions &key initial-prompt filter-fn no-confirm setup-fn)
   "Find and open an Org-roam file.
   INITIAL-PROMPT is the initial title prompt.
   COMPLETIONS is a list of completions to be used instead of
@@ -344,28 +307,17 @@ to the file."
   Call SETUP-FN before conducting completion. Useful to focus Emacs."
   (interactive)
   (unless org-roam-mode (org-roam-mode))
-  (let* ((completions (funcall (or filter-fn #'identity)
-                               completions))
-         (title-with-tags (pcase (list (length completions) (not org-roam-url-auto-complete-on-single-result))
-                            (`(0 . ,cdr) nil)
-                            (`(1 nil) (progn (when setup-fn (funcall setup-fn)) (caar completions)))
-                            (_ (if no-confirm
-                                   initial-prompt
-                                 (when setup-fn (funcall setup-fn))
-                                 (org-roam-url-completion--completing-read "File: " completions
-                                                                           :initial-input initial-prompt)))))
-         (res (cdr (assoc title-with-tags completions)))
-         (file-path  (plist-get res :path))
-         (point  (plist-get res :point)))
-    (if file-path
-        (org-roam-with-file file-path 't
-          (let ((win (get-buffer-window buf 't)))
-            (if win
-                (select-window win)
-              (switch-to-buffer buf)) ; If FILE is already visited, find buffer
-              (goto-char point)
-              (org-show-context)
-              't)))))
+  (if-let* ((completions (funcall (or filter-fn #'identity)
+                                  completions))
+            (node (pcase (list (length completions) (not org-roam-url-auto-complete-on-single-result))
+                    (`(0 . ,cdr) nil)
+                    (`(1 nil) (progn (when setup-fn (funcall setup-fn)) (car completions)))
+                    (_ (if no-confirm
+                           initial-prompt
+                         (when setup-fn (funcall setup-fn))
+                         (org-roam-url-completion--completing-read "node with url: " completions
+                                                                   :initial-input initial-prompt))))))
+      (org-roam-node-visit node)))
 
 (defun org-roam-protocol-open-url (info)
   "Process an org-protocol://roam-url?ref= style url with INFO.
@@ -380,16 +332,15 @@ When check is available in url, no matter what it is set to, just check if file 
           encodeURIComponent(window.getSelection()) + \\ + \\='&check=\\=' + anything + \\='&progressive=\\=' anything
 "
   (let* ((ref (plist-get info :ref))
-  (check (plist-get info :check))
-  (org-roam-url-auto-complete-on-single-result (not (plist-get info :noauto)))
-  (org-roam-capture-additional-template-props (list :no-save 't))
-  (progressive (plist-get info :progressive))
-  (opened-file (if progressive
-                   (org-roam-url-find-file nil (org-roam--get-url-place-title-path-completions-progressively ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
-                   (org-roam-url-find-file nil (org-roam--get-url-place-title-path-completions ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))))
-  (unless (or check opened-file)
-    (org-roam-protocol-open-ref info)
-    )))
+         (check (plist-get info :check))
+         (org-roam-url-auto-complete-on-single-result (not (plist-get info :noauto)))
+         (org-roam-capture-additional-template-props (list :no-save 't))
+         (progressive (plist-get info :progressive))
+         (opened-file (if progressive
+                          (org-roam-url-find-file (org-roam--get-url-place-title-path-completions ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
+                        (org-roam-url-find-file (org-roam--get-url-place-title-path-completions ref 0) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))))
+    (unless (or check opened-file)
+      (org-roam-protocol-open-ref info))))
 
 (push '("org-roam-url"  :protocol "roam-url"   :function org-roam-protocol-open-url)
       org-protocol-protocol-alist)
