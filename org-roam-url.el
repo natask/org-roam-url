@@ -215,34 +215,24 @@ https://google.com/search&=happy#complete
 
 (defun org-roam-url--query (url-path)
   "Find files containing a url that is like URL-PATH.
-  Return `org-roam-search-max' nodes stored in the database matching CONDITIONS as a list of `org-roam-node's."
+Return `org-roam-search-max' nodes stored in the database matching CONDITIONS as a list of `org-roam-node's."
   (let* ((where-clause     (if conditions
-                               (car (emacsql-prepare `[:where (like dest ,conditions)]))))
+                               (car (emacsql-prepare `[:where (like dest ,url-path)]))))
          (limit-clause     (if org-roam-search-max
                                (format "limit %d" org-roam-search-max)))
-         (query (concat
-                 "SELECT id, file, filetitle, \"level\", todo, priority,
-           scheduled, deadline , title, olp, atime,
-           mtime, '(' || group_concat(tags, ' ') || ')' as tags,
-           aliases, refs,
-           dest, pos, properties
-           FROM
-           -- outer from clause
-           (
-           SELECT  id,  file, filetitle, \"level\", todo, priority,  scheduled, deadline ,
-             title, olp, atime,  mtime, tags,
-             '(' || group_concat(aliases, ' ') || ')' as aliases,
-             refs,
-             dest, pos, properties
-           FROM
-           -- inner from clause
+         (query (string-join
+                 (list
+                  "SELECT id, file, filetitle, level, todo, pos, priority,
+           scheduled, deadline, title, properties, olp, atime,
+           mtime, tags, aliases, refs FROM
+           -- from clause
              (
-             SELECT  nodes.id as id,  nodes.file as file,  nodes.\"level\" as \"level\",
-               nodes.todo as todo,  nodes.priority as priority,
+             SELECT  nodes.id as id,  nodes.file as file,  nodes.level as level,
+               nodes.todo as todo,  nodes.pos as nodepos,  nodes.priority as priority,
                nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
-               nodes.olp as olp,  files.atime as atime,
+               nodes.properties as nodeproperties,  nodes.olp as olp,  files.atime as atime,
                files.title as filetitle,
-               files.mtime as mtime,  tags.tag as tags,    aliases.alias as aliases,
+               files.mtime as mtime,  '(' || group_concat(tags.tag, ' ') || ')' as tags, '(' || group_concat(aliases.alias, ' ') || ')' as aliases,
                '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs,
                links.dest as dest, links.pos as pos, links.properties as properties
              FROM nodes
@@ -250,19 +240,14 @@ https://google.com/search&=happy#complete
              LEFT JOIN tags ON tags.node_id = nodes.id
              LEFT JOIN aliases ON aliases.node_id = nodes.id
              LEFT JOIN refs ON refs.node_id = nodes.id
-             LEFT JOIN links ON links.source = nodes.id
-    "
-                 where-clause
-                 "
-  GROUP BY nodes.id, tags.tag, aliases.alias
-    "
-                 limit-clause
-                 ")
-  GROUP BY id, tags )
-GROUP BY id"))
+             GROUP BY nodes.id)
+             -- end from clause"
+                  where-clause
+                  order-by-clause
+                  limit-clause) "\n"))
          (rows (org-roam-db-query query)))
     (cl-loop for row in rows
-             append (pcase-let* ((`(,id ,file ,level ,todo ,pos ,priority ,scheduled ,deadline
+             append (pcase-let* ((`(,id ,file ,file-title ,level ,todo ,pos ,priority ,scheduled ,deadline
                                         ,title ,properties ,olp ,atime ,mtime ,tags ,aliases ,refs)
                                   row)
                                  (org-roam-node-create :id id
