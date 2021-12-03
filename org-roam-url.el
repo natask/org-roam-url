@@ -106,10 +106,10 @@ created."
   (mapcar
    (lambda (node)
      (cons
-      (concat (reduce (lambda (x y) (concat x "\n" y)) (org-roam-node-aliases node) (org-roam-node-title node))
-              "\n" (org-make-tag-string (org-roam-node-tags nodes))
-              "\n" (combine-and-quote-strings (org-roam-node-olp nodes))
-              "\n" (combine-and-quote-strings (org-roam-node-properties nodes)))
+      (concat (reduce (lambda (x y) (concat x "\n" y)) `(,(org-roam-node-title node) ,@(org-roam-node-aliases node)))
+              "\n" (concat "tags: " (org-make-tag-string (org-roam-node-tags node)))
+              "\n" (concat "olp+: " (combine-and-quote-strings (cons (org-roam-node-file-title node) (org-roam-node-olp node))))
+              "\n" (concat "outline: " (combine-and-quote-strings (plist-get (org-roam-node-properties node) :outline))))
       node))
    nodes))
 
@@ -145,7 +145,7 @@ Return user choice."
          (dolist (buf org-roam-url--kill-buffers-list)
            (kill-buffer buf))
          (setq org-roam-url--kill-buffers-list 'nil)
-         (car res))
+         res)
        (keyboard-quit)))))
 
 ;;; progressive
@@ -212,70 +212,84 @@ https://google.com/search&=happy#complete
          (org-roam-url--term-url it)
          (cons url it)))
 
-
 (defun org-roam-url--query (url-path)
   "Find files containing a url that is like URL-PATH.
-Return `org-roam-search-max' nodes stored in the database matching CONDITIONS as a list of `org-roam-node's."
-  (let* ((where-clause     (if conditions
-                               (car (emacsql-prepare `[:where (like dest ,url-path)]))))
-         (limit-clause     (if org-roam-search-max
-                               (format "limit %d" org-roam-search-max)))
-         (query (string-join
-                 (list
-                  "SELECT id, file, filetitle, level, todo, pos, priority,
-           scheduled, deadline, title, properties, olp, atime,
-           mtime, tags, aliases, refs FROM
-           -- from clause
-             (
-             SELECT  nodes.id as id,  nodes.file as file,  nodes.level as level,
-               nodes.todo as todo,  nodes.pos as nodepos,  nodes.priority as priority,
-               nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
-               nodes.properties as nodeproperties,  nodes.olp as olp,  files.atime as atime,
-               files.title as filetitle,
-               files.mtime as mtime,  '(' || group_concat(tags.tag, ' ') || ')' as tags, '(' || group_concat(aliases.alias, ' ') || ')' as aliases,
-               '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs,
-               links.dest as dest, links.pos as pos, links.properties as properties
-             FROM nodes
-             LEFT JOIN files ON files.file = nodes.file
-             LEFT JOIN tags ON tags.node_id = nodes.id
-             LEFT JOIN aliases ON aliases.node_id = nodes.id
-             LEFT JOIN refs ON refs.node_id = nodes.id
-             GROUP BY nodes.id)
-             -- end from clause"
-                  where-clause
-                  order-by-clause
-                  limit-clause) "\n"))
+Return `org-roam-search-max' nodes stored in the database containg URL-PATH as dest as a list of `org-roam-node's."
+  (let* ((where-clause (if url-path
+                           (car (emacsql-prepare `[:where (like dest ,url-path)]))))
+         (org-roam-db-super-main-clause
+
+"SELECT id, file, filetitle, level, todo, pos, priority,
+    scheduled, deadline, title, properties, olp, atime,
+    mtime, tags, aliases, refs FROM
+      (
+      SELECT id, file, filetitle, \"level\", todo, pos, priority,
+        scheduled, deadline, title, properties, olp, atime,
+        mtime, '(' || group_concat(tags, ' ') || ')' as tags,
+        aliases, refs, dest FROM
+        -- outer from clause
+        (
+        SELECT  id,  file, filetitle, \"level\", todo,  pos, priority,  scheduled, deadline ,
+          title, properties, olp, atime,  mtime, tags,
+          '(' || group_concat(aliases, ' ') || ')' as aliases,
+          refs, dest
+        FROM
+        -- inner from clause
+          (
+          SELECT  nodes.id as id,  nodes.file as file,  nodes.\"level\" as \"level\",
+            nodes.todo as todo,   nodes.pos as pos,  nodes.priority as priority,
+            nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
+            nodes.properties as properties,  nodes.olp as olp,  files.atime as atime,
+            files.title as filetitle,
+            files.mtime as mtime,  tags.tag as tags,    aliases.alias as aliases,
+            '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs,
+            links.dest as dest, links.pos as pos, links.properties as properties
+          FROM nodes
+          LEFT JOIN files ON files.file = nodes.file
+          LEFT JOIN tags ON tags.node_id = nodes.id
+          LEFT JOIN aliases ON aliases.node_id = nodes.id
+          LEFT JOIN refs ON refs.node_id = nodes.id
+          LEFT JOIN links ON links.source = nodes.id
+          GROUP BY nodes.id, tags.tag, aliases.alias )
+        -- end inner from clause
+        GROUP BY id, tags )
+        --- end outer from clause
+      GROUP BY id)")
+         (query  (string-join
+                  (list
+                   org-roam-db-super-main-clause
+                   where-clause) "\n"))
          (rows (org-roam-db-query query)))
     (cl-loop for row in rows
              append (pcase-let* ((`(,id ,file ,file-title ,level ,todo ,pos ,priority ,scheduled ,deadline
                                         ,title ,properties ,olp ,atime ,mtime ,tags ,aliases ,refs)
-                                  row)
-                                 (org-roam-node-create :id id
-                                                       :file file
-                                                       :file-atime atime
-                                                       :file-mtime mtime
-                                                       :level level
-                                                       :point pos
-                                                       :todo todo
-                                                       :priority priority
-                                                       :scheduled scheduled
-                                                       :deadline deadline
-                                                       :title title
-                                                       :aliases aliases
-                                                       :properties properties
-                                                       :olp olp
-                                                       :tags tags
-                                                       :refs refs)))))) ;;NOTE: maybe make a specific struct that would let me hold pos and properities that are link and node specific. also hold link dest.
+                                  row))
+                      (list
+                       (org-roam-node-create :id id
+                                             :file file
+                                             :file-title file-title
+                                             :file-atime atime
+                                             :file-mtime mtime
+                                             :level level
+                                             :point pos
+                                             :todo todo
+                                             :priority priority
+                                             :scheduled scheduled
+                                             :deadline deadline
+                                             :title title
+                                             :aliases aliases
+                                             :properties properties
+                                             :olp olp
+                                             :tags tags
+                                             :refs refs)))))) ;;NOTE: maybe make a specific struct that would let me hold pos and properities that are link and node specific. also hold link dest.
 
 (defun org-roam--get-url-place-title-path-completions (url &optional level)
-  "Return title path completions for URL progressively.
+  "Return title path completions for URL upto LEVEL depth.
 Find files that contain a portion of URL.
 The car is the displayed title for completion, and the cdr is the
 to the file."
-  (let* ((rows '())
-         (org-roam-url-max-depth (or level org-roam-url-max-depth))
-         completions)
-    (dolist (progressive-url (org-roam-url--progressive-urls url))
+  (let* (rows (org-roam-url-max-depth (or level org-roam-url-max-depth)))
+    (dolist (progressive-url (org-roam-url--progressive-urls url) rows)
       (if (not (and rows org-roam-url-stop-on-first-result))
           (setq rows (append rows (org-roam-url--query progressive-url)))))))
 
@@ -291,7 +305,6 @@ to the file."
   If NO-CONFIRM, assume that the user does not want to modify the initial prompt.
   Call SETUP-FN before conducting completion. Useful to focus Emacs."
   (interactive)
-  (unless org-roam-mode (org-roam-mode))
   (if-let* ((completions (funcall (or filter-fn #'identity)
                                   completions))
             (node (pcase (list (length completions) (not org-roam-url-auto-complete-on-single-result))
