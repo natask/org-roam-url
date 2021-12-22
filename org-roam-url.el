@@ -165,10 +165,10 @@ https://google.com/search&=happy#complete
                           (next-index 0)
                           res)
                       (while (and (setq next-index (string-match "[&#]" string
-			                                         (if (and (not (equal index 0))
+                                                                 (if (and (not (equal index 0))
                                                                           (< index (length string)))
-				                                     (1+ index) index)))
-		                  (< index (length string)))
+                                                                     (1+ index) index)))
+                                  (< index (length string)))
                         (push (list (substring string index next-index) (substring string  next-index (+ 1 next-index))) res)
                         (setq index (+ 1 next-index)))
                       (if (< index  (length string))
@@ -215,25 +215,34 @@ https://google.com/search&=happy#complete
 (defun org-roam-url--query (url-path)
   "Find files containing a url that is like URL-PATH.
 Return `org-roam-search-max' nodes stored in the database containg URL-PATH as dest as a list of `org-roam-node's."
-  (let* ((where-clause (if url-path
-                           (car (emacsql-prepare `[:where (like dest ,url-path)]))))
-         (org-roam-db-super-main-clause
-
-"SELECT id, file, filetitle, level, todo, pos, priority,
+  (when-let* ((nodes-query (if url-path
+                               `[:select :distinct [source]
+                                 :from links
+                                 :where (like dest ,url-path)
+                                 :limit ,org-roam-url-max-results]))
+              (where-clause (-some--> nodes-query
+                              (org-roam-db-query it)
+                              (mapcar (lambda (node)
+                                        `(= id ,(car node))) it)
+                              (cons 'or it)
+                              (emacsql-prepare `[:where ,it])
+                              (car it)))
+              (org-roam-db-super-main-clause
+               "
+SELECT id, file, filetitle, level, todo, pos, priority,
+  scheduled, deadline, title, properties, olp,
+  atime, mtime, tags, aliases, refs FROM
+  (
+  SELECT id, file, filetitle, \"level\", todo, pos, priority,
     scheduled, deadline, title, properties, olp, atime,
-    mtime, tags, aliases, refs FROM
+    mtime, '(' || group_concat(tags, ' ') || ')' as tags,
+    aliases, refs FROM
+    -- outer from clause
       (
-      SELECT id, file, filetitle, \"level\", todo, pos, priority,
-        scheduled, deadline, title, properties, olp, atime,
-        mtime, '(' || group_concat(tags, ' ') || ')' as tags,
-        aliases, refs, dest FROM
-        -- outer from clause
-        (
-        SELECT  id,  file, filetitle, \"level\", todo,  pos, priority,  scheduled, deadline ,
-          title, properties, olp, atime,  mtime, tags,
-          '(' || group_concat(aliases, ' ') || ')' as aliases,
-          refs, dest
-        FROM
+      SELECT  id,  file, filetitle, \"level\", todo,  pos, priority,  scheduled, deadline ,
+        title, properties, olp, atime,  mtime, tags,
+        '(' || group_concat(aliases, ' ') || ')' as aliases,
+        refs FROM
         -- inner from clause
           (
           SELECT  nodes.id as id,  nodes.file as file,  nodes.\"level\" as \"level\",
@@ -242,24 +251,22 @@ Return `org-roam-search-max' nodes stored in the database containg URL-PATH as d
             nodes.properties as properties,  nodes.olp as olp,  files.atime as atime,
             files.title as filetitle,
             files.mtime as mtime,  tags.tag as tags,    aliases.alias as aliases,
-            '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs,
-            links.dest as dest, links.pos as pos, links.properties as properties
+            '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs
           FROM nodes
-          LEFT JOIN files ON files.file = nodes.file
-          LEFT JOIN tags ON tags.node_id = nodes.id
-          LEFT JOIN aliases ON aliases.node_id = nodes.id
-          LEFT JOIN refs ON refs.node_id = nodes.id
-          LEFT JOIN links ON links.source = nodes.id
+            LEFT JOIN files ON files.file = nodes.file
+            LEFT JOIN tags ON tags.node_id = nodes.id
+            LEFT JOIN aliases ON aliases.node_id = nodes.id
+            LEFT JOIN refs ON refs.node_id = nodes.id
           GROUP BY nodes.id, tags.tag, aliases.alias )
         -- end inner from clause
-        GROUP BY id, tags )
-        --- end outer from clause
-      GROUP BY id)")
-         (query  (string-join
-                  (list
-                   org-roam-db-super-main-clause
-                   where-clause) "\n"))
-         (rows (org-roam-db-query query)))
+      GROUP BY id, tags )
+    -- end outer from clause
+  GROUP BY id)")
+              (query  (string-join
+                       (list
+                        org-roam-db-super-main-clause
+                        where-clause) "\n"))
+              (rows (org-roam-db-query query)))
     (cl-loop for row in rows
              append (pcase-let* ((`(,id ,file ,file-title ,level ,todo ,pos ,priority ,scheduled ,deadline
                                         ,title ,properties ,olp ,atime ,mtime ,tags ,aliases ,refs)
