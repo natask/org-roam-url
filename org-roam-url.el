@@ -5,7 +5,7 @@
 ;; URL: https://github.com/natask/org-roam
 ;; Keywords: org-mode, roam, convenience, url
 ;; Version: 1.2.2
-;; Package-Requires: ((emacs "26.1") (org "9.3"))
+;; Package-Requires: ((emacs "27.1") (org "9.3") (s "1") (org-roam "2"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -37,10 +37,11 @@
 (require 'org-protocol)
 (require 'org-roam-protocol)
 (require 'org-roam)
+(require 's)
 (require 'helm)
 
 ;;;; Vars
-(defconst helm-org-url-fontify-buffer-name " *helm-org-url-fontify*"
+(defconst org-roam-url-fontify-buffer-name " *org-url-fontify*"
   "The name of the invisible buffer used to fontify `org-mode' strings.")
 
 (defcustom org-roam-url-max-depth 3
@@ -48,11 +49,10 @@
   :type '(integer)
   :group 'org-roam-url)
 
-(defcustom org-roam-url-max-results 30
+(defcustom org-roam-url-max-results 300
   "The max number of results returned through querying database."
   :type '(integer)
   :group 'org-roam-url)
-
 (defcustom org-roam-url-stop-on-first-result 't
   "Stops after there is a result or depth which ever one comes first."
   :type '(boolean)
@@ -65,7 +65,8 @@
 
 ;;;; Functions
 
-(defun org-roam--prepend-url-place (props title file-from tags)
+(defun org-roam-url--prepend-place (props title file-from tags) ;TODO: implement
+  "NOT IN USE"
   (concat (org-roam--add-tag-string title tags) " :" (number-to-string (plist-get props :point)) ":"
           "\n"
           "* "
@@ -75,10 +76,9 @@
           "\n"
           "=> " (s-trim (s-replace "\n" " "
                                    (funcall org-roam-buffer-preview-function file-from (plist-get props :point))))
-          "\n\n"
-          ))
+          "\n\n"))
 
-(defun helm-org-url-fontify-like-in-org-mode (s &optional odd-levels)
+(defun org-roam-url--fontify-like-in-org-mode (s &optional odd-levels)
   "Fontify string S like in Org-mode.
 
 stripped from org-rifle.
@@ -88,9 +88,9 @@ because it creates a new temporary buffer and runs `org-mode' for
 every string it fontifies.  This function reuses a single
 invisible buffer and only runs `org-mode' when the buffer is
 created."
-  (let ((buffer (get-buffer helm-org-url-fontify-buffer-name)))
+  (let ((buffer (get-buffer org-roam-url-fontify-buffer-name)))
     (unless buffer
-      (setq buffer (get-buffer-create helm-org-url-fontify-buffer-name))
+      (setq buffer (get-buffer-create org-roam-url-fontify-buffer-name))
       (with-current-buffer buffer
         (org-mode)))
     (with-current-buffer buffer
@@ -117,7 +117,6 @@ created."
   "List of buffers to kill when completion framework exits.
 buffers opened using persistent-action.")
 
-;;;###autoload
 (cl-defun org-roam-url-completion--completing-read (prompt choices &key
                                                            require-match initial-input)
   "Present a PROMPT with CHOICES and optional INITIAL-INPUT.
@@ -133,7 +132,7 @@ Return user choice."
                                             (let ((condition (find-buffer-visiting (org-roam-node-file candidate)))
                                                   (buffer (org-roam-node-visit candidate 't)))
                                               (unless condition
-                                                (add-to-list 'org-roam-search--kill-buffers-list buffer))))))
+                                                (add-to-list 'org-roam-url--kill-buffers-list buffer))))))
           (buf (concat "*org-roam-url "
                        (s-downcase (s-chop-suffix ":" (s-trim prompt)))
                        "*")))
@@ -215,25 +214,13 @@ https://google.com/search&=happy#complete
 (defun org-roam-url--query (url-path)
   "Find files containing a url that is like URL-PATH.
 Return `org-roam-search-max' nodes stored in the database containg URL-PATH as dest as a list of `org-roam-node's."
-  (when-let* ((nodes-query (if url-path
-                               `[:select :distinct [source]
-                                 :from links
-                                 :where (like dest ,url-path)
-                                 :limit ,org-roam-url-max-results]))
-              (where-clause (-some--> nodes-query
-                              (org-roam-db-query it)
-                              (mapcar (lambda (node)
-                                        `(= id ,(car node))) it)
-                              (cons 'or it)
-                              (emacsql-prepare `[:where ,it])
-                              (car it)))
+  (when-let* ((where-clause (if url-path
+                                (car (emacsql-prepare `[:where (like dest ,url-path)]))))
+              (limit-clause (if org-roam-url-max-results
+                                (format "limit %d" org-roam-url-max-results)))
               (org-roam-db-super-main-clause
                "
 SELECT id, file, filetitle, level, todo, pos, priority,
-  scheduled, deadline, title, properties, olp,
-  atime, mtime, tags, aliases, refs FROM
-  (
-  SELECT id, file, filetitle, \"level\", todo, pos, priority,
     scheduled, deadline, title, properties, olp, atime,
     mtime, '(' || group_concat(tags, ' ') || ')' as tags,
     aliases, refs FROM
@@ -246,26 +233,28 @@ SELECT id, file, filetitle, level, todo, pos, priority,
         -- inner from clause
           (
           SELECT  nodes.id as id,  nodes.file as file,  nodes.\"level\" as \"level\",
-            nodes.todo as todo,   nodes.pos as pos,  nodes.priority as priority,
+            nodes.todo as todo,   nodes.pos as node_pos,  nodes.priority as priority,
             nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
             nodes.properties as properties,  nodes.olp as olp,  files.atime as atime,
             files.title as filetitle,
             files.mtime as mtime,  tags.tag as tags,    aliases.alias as aliases,
             '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs
           FROM nodes
-            LEFT JOIN files ON files.file = nodes.file
-            LEFT JOIN tags ON tags.node_id = nodes.id
-            LEFT JOIN aliases ON aliases.node_id = nodes.id
-            LEFT JOIN refs ON refs.node_id = nodes.id
-          GROUP BY nodes.id, tags.tag, aliases.alias )
+          LEFT JOIN files ON files.file = nodes.file
+          LEFT JOIN tags ON tags.node_id = nodes.id
+          LEFT JOIN aliases ON aliases.node_id = nodes.id
+          LEFT JOIN refs ON refs.node_id = nodes.id
+          LEFT JOIN links ON links.source = nodes.id
+          GROUP BY nodes.id, tags.tag, aliases.alias, links.dest )
         -- end inner from clause
-      GROUP BY id, tags )
-    -- end outer from clause
-  GROUP BY id)")
+        GROUP BY id, tags, dest )
+        --- end outer from clause
+      GROUP BY id, dest )")
               (query  (string-join
                        (list
                         org-roam-db-super-main-clause
-                        where-clause) "\n"))
+                        where-clause
+                        limit-clause) "\n"))
               (rows (org-roam-db-query query)))
     (cl-loop for row in rows
              append (pcase-let* ((`(,id ,file ,file-title ,level ,todo ,pos ,priority ,scheduled ,deadline
@@ -290,7 +279,7 @@ SELECT id, file, filetitle, level, todo, pos, priority,
                                              :tags tags
                                              :refs refs)))))) ;;NOTE: maybe make a specific struct that would let me hold pos and properities that are link and node specific. also hold link dest.
 
-(defun org-roam--get-url-place-title-path-completions (url &optional level)
+(defun org-roam-url--get-place-title-path-completions (url &optional level)
   "Return title path completions for URL upto LEVEL depth.
 Find files that contain a portion of URL.
 The car is the displayed title for completion, and the cdr is the
@@ -322,8 +311,10 @@ to the file."
                          (when setup-fn (funcall setup-fn))
                          (org-roam-url-completion--completing-read "node with url: " completions
                                                                    :initial-input initial-prompt))))))
-      (org-roam-node-visit node)))
+      (org-roam-node-visit node 'nil 't)
+    node))
 
+;;;###autoload
 (defun org-roam-protocol-open-url (info)
   "Process an org-protocol://roam-url?ref= style url with INFO.
 
@@ -342,8 +333,8 @@ When check is available in url, no matter what it is set to, just check if file 
          (org-roam-capture-additional-template-props (list :no-save 't))
          (progressive (plist-get info :progressive))
          (opened-file (if progressive
-                          (org-roam-url-find-file (org-roam--get-url-place-title-path-completions ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
-                        (org-roam-url-find-file (org-roam--get-url-place-title-path-completions ref 0) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))))
+                          (org-roam-url-find-file (org-roam-url--get-place-title-path-completions ref) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame))))
+                        (org-roam-url-find-file (org-roam-url--get-place-title-path-completions ref 0) :setup-fn (lambda () (x-focus-frame nil) (raise-frame) (select-frame-set-input-focus (selected-frame)))))))
     (unless (or check opened-file)
       (org-roam-protocol-open-ref info))))
 
