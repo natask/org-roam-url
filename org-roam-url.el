@@ -193,10 +193,6 @@ https://google.com/search&=happy#complete
                        (lambda (y z) (concat (apply 'concat z) (if (listp y) (apply 'concat y) y))) (cdr x) :initial-value (caar x)))
           url-list))
 
-(defun org-roam-url--cap-url (url-list)
-  "Prepend urls in URL-LIST with //."
-  (mapcar (lambda (x) (concat "//" x)) url-list))
-
 (defun org-roam-url--term-url (url-list)
   "Suffix urls in URL-LIST with %%."
   (mapcar (lambda (x) (concat "%%" x "%%")) url-list))
@@ -207,20 +203,33 @@ https://google.com/search&=happy#complete
          (org-roam-url--url-components it)
          (org-roam-url--progressive-paths it)
          (org-roam-url--to-url-list it)
-         (org-roam-url--cap-url it)
          (org-roam-url--term-url it)
          (cons url it)))
 
 (defun org-roam-url--query (url-path)
   "Find files containing a url that is like URL-PATH.
 Return `org-roam-search-max' nodes stored in the database containg URL-PATH as dest as a list of `org-roam-node's."
-  (when-let* ((where-clause (if url-path
-                                (car (emacsql-prepare `[:where (like dest ,url-path)]))))
-              (limit-clause (if org-roam-url-max-results
-                                (format "limit %d" org-roam-url-max-results)))
+  (when-let* ((nodeids-extra (-some--> url-path
+                                    `[:select :distinct [source pos]
+                                      :from links
+                                      :where (like dest ,url-path)
+                                      :limit ,org-roam-url-max-results]
+                                    (org-roam-db-query it)))
+              (nodeids (cl-loop for nodeid-extra in nodeids-extra
+                                     collect (car nodeid-extra)))
+              (where-clause (-some--> nodeids
+                              (mapcar (lambda (nodeid)
+                                        `(= id ,nodeid)) it)
+                              (cons 'or it)
+                              (emacsql-prepare `[:where ,it])
+                              (car it)))
               (org-roam-db-super-main-clause
                "
 SELECT id, file, filetitle, level, todo, pos, priority,
+  scheduled, deadline, title, properties, olp,
+  atime, mtime, tags, aliases, refs FROM
+  (
+  SELECT id, file, filetitle, \"level\", todo, pos, priority,
     scheduled, deadline, title, properties, olp, atime,
     mtime, '(' || group_concat(tags, ' ') || ')' as tags,
     aliases, refs FROM
@@ -233,32 +242,30 @@ SELECT id, file, filetitle, level, todo, pos, priority,
         -- inner from clause
           (
           SELECT  nodes.id as id,  nodes.file as file,  nodes.\"level\" as \"level\",
-            nodes.todo as todo,   nodes.pos as node_pos,  nodes.priority as priority,
+            nodes.todo as todo,   nodes.pos as pos,  nodes.priority as priority,
             nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
             nodes.properties as properties,  nodes.olp as olp,  files.atime as atime,
             files.title as filetitle,
             files.mtime as mtime,  tags.tag as tags,    aliases.alias as aliases,
             '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs
           FROM nodes
-          LEFT JOIN files ON files.file = nodes.file
-          LEFT JOIN tags ON tags.node_id = nodes.id
-          LEFT JOIN aliases ON aliases.node_id = nodes.id
-          LEFT JOIN refs ON refs.node_id = nodes.id
-          LEFT JOIN links ON links.source = nodes.id
-          GROUP BY nodes.id, tags.tag, aliases.alias, links.dest )
+            LEFT JOIN files ON files.file = nodes.file
+            LEFT JOIN tags ON tags.node_id = nodes.id
+            LEFT JOIN aliases ON aliases.node_id = nodes.id
+            LEFT JOIN refs ON refs.node_id = nodes.id
+          GROUP BY nodes.id, tags.tag, aliases.alias )
         -- end inner from clause
-        GROUP BY id, tags, dest )
-        --- end outer from clause
-      GROUP BY id, dest )")
+      GROUP BY id, tags )
+    -- end outer from clause
+  GROUP BY id)")
               (query  (string-join
                        (list
                         org-roam-db-super-main-clause
-                        where-clause
-                        limit-clause) "\n"))
+                        where-clause) "\n"))
               (rows (org-roam-db-query query)))
     (cl-loop for row in rows
              append (pcase-let* ((`(,id ,file ,file-title ,level ,todo ,pos ,priority ,scheduled ,deadline
-                                        ,title ,properties ,olp ,atime ,mtime ,tags ,aliases ,refs)
+                                    ,title ,properties ,olp ,atime ,mtime ,tags ,aliases ,refs)
                                   row))
                       (list
                        (org-roam-node-create :id id
@@ -267,7 +274,7 @@ SELECT id, file, filetitle, level, todo, pos, priority,
                                              :file-atime atime
                                              :file-mtime mtime
                                              :level level
-                                             :point pos
+                                             :point (car (alist-get id nodeids-extra 0 'nil 'equal))
                                              :todo todo
                                              :priority priority
                                              :scheduled scheduled
@@ -311,7 +318,7 @@ to the file."
                          (when setup-fn (funcall setup-fn))
                          (org-roam-url-completion--completing-read "node with url: " completions
                                                                    :initial-input initial-prompt))))))
-      (org-roam-node-visit node 'nil 't)
+      (org-roam-node-visit node 'nil current-prefix-arg)
     node))
 
 ;;;###autoload
