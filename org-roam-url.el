@@ -308,7 +308,7 @@ to the file."
   If NO-CONFIRM, assume that the user does not want to modify the initial prompt.
   Call SETUP-FN before conducting completion. Useful to focus Emacs."
   (interactive)
-  (if-let* ((completions (funcall (or filter-fn #'identity)
+  (when-let* ((completions (funcall (or filter-fn #'identity)
                                   completions))
             (node (pcase (list (length completions) (not org-roam-url-auto-complete-on-single-result))
                     (`(0 . ,cdr) nil)
